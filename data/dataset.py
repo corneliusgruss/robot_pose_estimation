@@ -83,7 +83,7 @@ class RobotKeypointDataset(Dataset):
         
         for data_dir in data_dirs:
             data_path = Path(data_dir)
-            csv_path = data_path / 'labels.csv'
+            csv_path = data_path / 'robot_state.csv'
             
             if not csv_path.exists():
                 print(f"Warning: {csv_path} not found, skipping")
