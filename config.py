@@ -9,12 +9,12 @@ import numpy as np
 # PATHS - Update these for your environment
 # =============================================================================
 TRAIN_DIRS = [
-    'Datasets/Train5000v2',
-    'Datasets/Train1000v2-Room',
-    'Datasets/Train1000v2-Warehouse',
-    'Datasets/Train1000v2-Hospital',
+    '../../Datasets/Train5000v2',
+    '../../Datasets/Train1000v2-Room',
+    '../../Datasets/Train1000v2-Warehouse',
+    '../../Datasets/Train1000v2-Hospital',
 ]
-TEST_DIR = 'Datasets/Test2000v2'
+TEST_DIR = '../../Datasets/Test2000v2'
 CHECKPOINT_DIR = 'checkpoints'
 
 # =============================================================================
