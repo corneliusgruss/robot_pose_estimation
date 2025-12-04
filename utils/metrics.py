@@ -4,8 +4,9 @@ Metrics for Robot Pose Estimation
 Includes:
 - 2D pixel error
 - Bounding box IoU
-- 3D ADD error
-- AUC computation
+- Evaluation helpers
+
+For 3D metrics (ADD error, AUC), see pose_3d.py
 """
 
 import torch
@@ -69,73 +70,6 @@ def compute_bbox_iou(pred, target):
     
     iou = intersection / (union + 1e-6)
     return iou.mean().item()
-
-
-# =============================================================================
-# 3D METRICS
-# =============================================================================
-
-def compute_add_error_scaled(pred_2d, gt_2d, gt_3d):
-    """
-    Estimate 3D error using scale from GT correspondences.
-    
-    Avoids needing exact camera intrinsics by using the ratio of
-    2D pixel distances to 3D spatial distances from ground truth.
-    
-    Args:
-        pred_2d: (6, 2) predicted 2D keypoints in pixels
-        gt_2d: (6, 2) ground truth 2D keypoints in pixels
-        gt_3d: (6, 3) ground truth 3D positions in meters
-    
-    Returns:
-        add_error: mean 3D spatial error in meters
-        per_joint_errors: (6,) per-joint 3D errors in meters
-        scale: estimated meters per pixel
-    """
-    # Compute pairwise distances in 2D and 3D for GT
-    scales = []
-    for i in range(6):
-        for j in range(i+1, 6):
-            dist_2d = np.linalg.norm(gt_2d[i] - gt_2d[j])
-            dist_3d = np.linalg.norm(gt_3d[i] - gt_3d[j])
-            
-            if dist_2d > 10:  # Avoid degenerate cases
-                scales.append(dist_3d / dist_2d)
-    
-    scale = np.median(scales) if scales else 0.003  # Fallback ~3mm/px
-    
-    # Compute 2D error and convert to 3D using scale
-    errors_2d = np.linalg.norm(pred_2d - gt_2d, axis=1)
-    errors_3d = errors_2d * scale
-    
-    return errors_3d.mean(), errors_3d, scale
-
-
-def compute_auc(errors, max_threshold=0.30, num_steps=100):
-    """
-    Compute Area Under the Curve for ADD metric.
-    
-    Args:
-        errors: array of ADD errors in meters
-        max_threshold: maximum threshold (default 0.30m = 30cm)
-        num_steps: number of threshold steps
-    
-    Returns:
-        auc: Area under curve (0-1, higher is better)
-        thresholds: array of thresholds used
-        accuracies: accuracy at each threshold
-    """
-    thresholds = np.linspace(0, max_threshold, num_steps)
-    accuracies = []
-    
-    for thresh in thresholds:
-        acc = (errors <= thresh).mean()
-        accuracies.append(acc)
-    
-    accuracies = np.array(accuracies)
-    auc = np.trapz(accuracies, thresholds) / max_threshold
-    
-    return auc, thresholds, accuracies
 
 
 # =============================================================================

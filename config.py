@@ -23,7 +23,7 @@ CHECKPOINT_DIR = 'checkpoints'
 ORIG_SIZE = 1080              # Original image size
 STAGE1_SIZE = 256             # Stage 1 input (bbox prediction)
 STAGE2_SIZE = 512             # Stage 2 input (keypoint prediction)
-BBOX_PADDING = 75             # Padding around keypoints for bbox (increased from 50)
+BBOX_PADDING = 100            # Padding around keypoints for bbox
 
 # =============================================================================
 # MODEL SETTINGS
@@ -35,8 +35,8 @@ NUM_JOINTS = 6
 # =============================================================================
 # TRAINING SETTINGS
 # =============================================================================
-BATCH_SIZE = 16
-NUM_WORKERS = 2               # Reduced for SCC compatibility
+BATCH_SIZE = 32
+NUM_WORKERS = 4
 LR = 1e-4
 WEIGHT_DECAY = 1e-4
 
@@ -73,7 +73,10 @@ KEYPOINT_COLS_3D = [
 ]
 
 # =============================================================================
-# CAMERA INTRINSICS (Isaac Sim defaults - update if you have actual values)
+# CAMERA INTRINSICS
+# These are estimated Isaac Sim defaults and may not be accurate.
+# Currently NOT used for inference - the project outputs 2D keypoints.
+# 3D error estimation uses a scaling approximation (see utils/pose_3d.py).
 # =============================================================================
 CAMERA_MATRIX = np.array([
     [600.0,   0.0, 540.0],  # fx, 0, cx

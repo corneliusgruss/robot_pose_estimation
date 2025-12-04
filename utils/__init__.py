@@ -14,11 +14,14 @@ from .visualization import (
 from .metrics import (
     compute_pixel_error,
     compute_bbox_iou,
-    compute_add_error_scaled,
-    compute_auc,
     AverageMeter,
     evaluate_keypoint_model,
     evaluate_bbox_model,
+)
+
+from .pose_3d import (
+    compute_add_error_scaled,
+    compute_auc,
 )
 
 from .training import (
@@ -36,14 +39,15 @@ __all__ = [
     'visualize_bbox_predictions',
     'plot_training_history',
     'plot_error_distribution',
-    # Metrics
+    # Metrics (2D)
     'compute_pixel_error',
     'compute_bbox_iou',
-    'compute_add_error_scaled',
-    'compute_auc',
     'AverageMeter',
     'evaluate_keypoint_model',
     'evaluate_bbox_model',
+    # Pose 3D (approximate)
+    'compute_add_error_scaled',
+    'compute_auc',
     # Training
     'train_one_epoch_keypoints',
     'train_one_epoch_bbox',

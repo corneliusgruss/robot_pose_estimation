@@ -13,7 +13,7 @@ This project estimates the 6D pose of a UR10 robot arm from a single RGB image u
 1. **Stage 1**: Bounding box detection (ResNet18)
 2. **Stage 2**: 2D keypoint regression (ResNet34)
 
-The 2D keypoints are then converted to 3D positions using PnP or scale estimation.
+The 2D keypoints can be evaluated using a scaling-based 3D error approximation (see `utils/pose_3d.py` for details on limitations).
 
 ## Results
 
@@ -37,14 +37,14 @@ robot_pose_estimation/
 │   └── dataset.py            # RobotKeypointDataset
 ├── utils/
 │   ├── visualization.py      # Plotting functions
-│   ├── metrics.py            # ADD, AUC, IoU
+│   ├── metrics.py            # 2D metrics, IoU
+│   ├── pose_3d.py            # 3D error estimation (approximate)
 │   └── training.py           # Training loops
 ├── checkpoints/              # Saved models
 ├── notebooks/
-│   ├── 01_train_stage2.py    # Train keypoint model
-│   ├── 02_train_stage1.py    # Train bbox model
-│   ├── 03_evaluate.py        # Full evaluation
-│   └── demo.py               # Presentation demo
+│   ├── 01_train_stage1.ipynb # Train bbox model
+│   ├── 02_train_stage2.ipynb # Train keypoint model
+│   └── 03_evaluate.ipynb     # Full evaluation
 └── README.md
 ```
 
@@ -53,21 +53,16 @@ robot_pose_estimation/
 ### Training
 
 1. Update paths in `config.py` to point to your dataset
-2. Train Stage 2 first (uses ground-truth bboxes):
-   ```bash
-   cd notebooks
-   python 01_train_stage2.py
-   ```
-3. Train Stage 1:
-   ```bash
-   python 02_train_stage1.py
-   ```
+2. Train Stage 1 (bounding box detection):
+   - Open `notebooks/01_train_stage1.ipynb`
+3. Train Stage 2 (keypoint regression, uses ground-truth bboxes):
+   - Open `notebooks/02_train_stage2.ipynb`
+
+Note: The two stages are independent during training. Stage 2 uses ground-truth bounding boxes, not Stage 1 predictions.
 
 ### Evaluation
 
-```bash
-python 03_evaluate.py
-```
+Open `notebooks/03_evaluate.ipynb` to run the full pipeline evaluation.
 
 ### Inference
 
