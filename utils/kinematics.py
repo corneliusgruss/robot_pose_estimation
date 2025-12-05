@@ -274,7 +274,7 @@ def solve_ik_from_2d(
     pred_2d: np.ndarray,
     gt_2d: np.ndarray,
     gt_3d: np.ndarray,
-    gt_angles: np.ndarray,
+    gt_angles_deg: np.ndarray,
     camera_matrix: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray, float]:
     """
@@ -289,29 +289,35 @@ def solve_ik_from_2d(
         pred_2d: (6, 2) predicted 2D keypoints from model
         gt_2d: (6, 2) ground truth 2D keypoints (for transform estimation)
         gt_3d: (6, 3) ground truth 3D positions (for transform estimation)
-        gt_angles: (6,) ground truth joint angles (as initial guess)
+        gt_angles_deg: (6,) ground truth joint angles in DEGREES (as initial guess)
         camera_matrix: (3, 3) camera intrinsic matrix
 
     Returns:
-        estimated_angles: (6,) estimated joint angles in radians
+        estimated_angles_deg: (6,) estimated joint angles in DEGREES
         estimated_3d: (6, 3) estimated 3D positions in robot frame
         reproj_error: reprojection error in pixels
     """
+    # Convert GT angles to radians for IK optimization
+    gt_angles_rad = np.radians(gt_angles_deg)
+
     # Step 1: Estimate robot-to-camera transform from GT
     robot_to_camera = estimate_robot_to_camera_transform(gt_2d, gt_3d, camera_matrix)
 
-    # Step 2: Solve IK using predicted 2D
-    estimated_angles, reproj_error, success = solve_ik_reprojection(
+    # Step 2: Solve IK using predicted 2D (internally uses radians)
+    estimated_angles_rad, reproj_error, success = solve_ik_reprojection(
         target_2d=pred_2d,
         camera_matrix=camera_matrix,
         robot_to_camera=robot_to_camera,
-        initial_angles=gt_angles,  # Use GT as initial guess for faster convergence
+        initial_angles=gt_angles_rad,  # Use GT as initial guess
     )
 
     # Step 3: Compute FK to get 3D positions
-    estimated_3d = get_joint_positions(estimated_angles, include_base=True)
+    estimated_3d = get_joint_positions(estimated_angles_rad, include_base=True, angles_in_radians=True)
 
-    return estimated_angles, estimated_3d, reproj_error
+    # Convert estimated angles back to degrees for output
+    estimated_angles_deg = np.degrees(estimated_angles_rad)
+
+    return estimated_angles_deg, estimated_3d, reproj_error
 
 
 def compute_angle_error(estimated_angles: np.ndarray, gt_angles: np.ndarray) -> np.ndarray:
@@ -335,7 +341,7 @@ def compute_add_error_ik(
     pred_2d: np.ndarray,
     gt_2d: np.ndarray,
     gt_3d: np.ndarray,
-    gt_angles: np.ndarray,
+    gt_angles_deg: np.ndarray,
     camera_matrix: np.ndarray,
 ) -> Tuple[float, np.ndarray, np.ndarray, float]:
     """
@@ -347,28 +353,32 @@ def compute_add_error_ik(
         pred_2d: (6, 2) predicted 2D keypoints
         gt_2d: (6, 2) ground truth 2D keypoints
         gt_3d: (6, 3) ground truth 3D positions
-        gt_angles: (6,) ground truth joint angles
+        gt_angles_deg: (6,) ground truth joint angles in DEGREES
         camera_matrix: (3, 3) camera intrinsic matrix
 
     Returns:
         add_error: Mean ADD error in meters
         per_joint_errors: (6,) per-joint 3D errors in meters
-        angle_errors: (6,) per-joint angle errors in radians
+        angle_errors_deg: (6,) per-joint angle errors in DEGREES
         reproj_error: Final reprojection error in pixels
     """
-    # Solve IK
-    estimated_angles, estimated_3d, reproj_error = solve_ik_from_2d(
-        pred_2d, gt_2d, gt_3d, gt_angles, camera_matrix
+    # Solve IK (returns angles in degrees)
+    estimated_angles_deg, estimated_3d, reproj_error = solve_ik_from_2d(
+        pred_2d, gt_2d, gt_3d, gt_angles_deg, camera_matrix
     )
 
     # Compute 3D position errors (ADD)
     per_joint_errors = np.linalg.norm(estimated_3d - gt_3d, axis=1)
     add_error = per_joint_errors.mean()
 
-    # Compute angle errors with proper wrapping
-    angle_errors = compute_angle_error(estimated_angles, gt_angles)
+    # Compute angle errors with proper wrapping (convert to radians for wrapping, then back to degrees)
+    angle_errors_rad = compute_angle_error(
+        np.radians(estimated_angles_deg),
+        np.radians(gt_angles_deg)
+    )
+    angle_errors_deg = np.degrees(angle_errors_rad)
 
-    return add_error, per_joint_errors, angle_errors, reproj_error
+    return add_error, per_joint_errors, angle_errors_deg, reproj_error
 
 
 if __name__ == '__main__':
