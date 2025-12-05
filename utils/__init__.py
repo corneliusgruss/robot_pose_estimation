@@ -21,6 +21,8 @@ from .metrics import (
 
 from .pose_3d import (
     compute_add_error_scaled,
+    compute_add_error_pnp,
+    compute_reprojection_error,
     compute_auc,
 )
 
@@ -45,8 +47,10 @@ __all__ = [
     'AverageMeter',
     'evaluate_keypoint_model',
     'evaluate_bbox_model',
-    # Pose 3D (approximate)
+    # Pose 3D
     'compute_add_error_scaled',
+    'compute_add_error_pnp',
+    'compute_reprojection_error',
     'compute_auc',
     # Training
     'train_one_epoch_keypoints',

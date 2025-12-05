@@ -72,6 +72,12 @@ KEYPOINT_COLS_3D = [
     ('J5_Wrist_x', 'J5_Wrist_y', 'J5_Wrist_z'),
 ]
 
+# CSV column names for joint angles (radians)
+JOINT_ANGLE_COLS = [
+    'J0_actual', 'J1_actual', 'J2_actual',
+    'J3_actual', 'J4_actual', 'J5_actual'
+]
+
 # =============================================================================
 # CAMERA INTRINSICS
 # These are estimated Isaac Sim defaults and may not be accurate.

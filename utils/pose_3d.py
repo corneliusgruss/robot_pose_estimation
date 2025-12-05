@@ -3,22 +3,17 @@
 
 This module provides functions for estimating 3D errors from 2D keypoint predictions.
 
-IMPORTANT: The scaling-based approach used here is an approximation for evaluation
-purposes only. It is NOT true 3D pose estimation.
+Two approaches are provided:
+1. Scaling approximation (compute_add_error_scaled) - fast but approximate
+2. PnP-based estimation (compute_add_error_pnp) - more accurate, requires camera intrinsics
 
-Limitations of the scaling approach:
-- Requires ground truth 3D positions to compute the scale factor
-- Assumes roughly orthographic projection (constant depth)
-- Does not account for perspective distortion at different depths
-- Cannot be used for inference without ground truth
-
-For true 3D pose estimation, you would need:
-- Accurate camera intrinsics (focal length, principal point)
-- Known 3D model of the robot (joint positions in robot frame)
-- PnP solver (e.g., cv2.solvePnP) to estimate camera pose
+IMPORTANT: The scaling-based approach is an approximation for evaluation purposes only.
+The PnP-based approach provides more accurate 3D error estimation but treats the
+robot as a rigid body (which is an approximation for articulated robots).
 """
 
 import numpy as np
+import cv2
 
 
 def compute_add_error_scaled(pred_2d, gt_2d, gt_3d):
@@ -91,3 +86,121 @@ def compute_auc(errors, max_threshold=0.30, num_steps=100):
     auc = np.trapz(accuracies, thresholds) / max_threshold
 
     return auc, thresholds, accuracies
+
+
+def compute_add_error_pnp(pred_2d, gt_3d, camera_matrix, dist_coeffs=None):
+    """
+    Compute ADD error using PnP pose estimation.
+
+    This function estimates the 6D pose of the robot by solving the Perspective-n-Point
+    problem, then computes the ADD (Average Distance of model points) error.
+
+    The approach:
+    1. Use GT 3D positions as the "object model" (robot reference frame)
+    2. Solve PnP with predicted 2D keypoints to get pose (R, t)
+    3. Transform model points by estimated pose
+    4. Compare transformed points to GT 3D positions
+
+    Note: This treats the robot as a rigid body, which is an approximation
+    since robot arms are articulated. However, it provides a meaningful
+    measure of 3D pose accuracy.
+
+    Args:
+        pred_2d: (N, 2) predicted 2D keypoints in pixels
+        gt_3d: (N, 3) ground truth 3D positions in meters (robot frame)
+        camera_matrix: (3, 3) camera intrinsic matrix
+        dist_coeffs: distortion coefficients (default: None = no distortion)
+
+    Returns:
+        add_error: mean ADD error in meters (NaN if PnP fails)
+        per_joint_errors: (N,) per-joint 3D errors in meters
+        pose: dict with 'rvec', 'tvec', 'R' if successful, None otherwise
+    """
+    if dist_coeffs is None:
+        dist_coeffs = np.zeros(5, dtype=np.float32)
+
+    # Ensure correct types for OpenCV
+    object_points = gt_3d.astype(np.float32).reshape(-1, 1, 3)
+    image_points = pred_2d.astype(np.float32).reshape(-1, 1, 2)
+    camera_matrix = camera_matrix.astype(np.float32)
+    dist_coeffs = dist_coeffs.astype(np.float32)
+
+    # Solve PnP
+    success, rvec, tvec = cv2.solvePnP(
+        objectPoints=object_points,
+        imagePoints=image_points,
+        cameraMatrix=camera_matrix,
+        distCoeffs=dist_coeffs,
+        flags=cv2.SOLVEPNP_ITERATIVE
+    )
+
+    if not success:
+        return np.nan, np.full(len(gt_3d), np.nan), None
+
+    # Convert rotation vector to matrix
+    R, _ = cv2.Rodrigues(rvec)
+
+    # Transform model points by estimated pose: P_cam = R @ P_model + t
+    pred_3d = (R @ gt_3d.T).T + tvec.T
+
+    # ADD error: distance between estimated 3D positions and GT 3D positions
+    # Note: Both are now in camera frame
+    per_joint_errors = np.linalg.norm(pred_3d - gt_3d, axis=1)
+    add_error = per_joint_errors.mean()
+
+    pose = {
+        'rvec': rvec,
+        'tvec': tvec,
+        'R': R
+    }
+
+    return add_error, per_joint_errors, pose
+
+
+def compute_reprojection_error(pred_2d, gt_3d, camera_matrix, dist_coeffs=None):
+    """
+    Compute reprojection error after PnP pose estimation.
+
+    This provides a measure of how well the estimated pose explains the
+    observed 2D keypoints.
+
+    Args:
+        pred_2d: (N, 2) predicted 2D keypoints in pixels
+        gt_3d: (N, 3) ground truth 3D positions in meters
+        camera_matrix: (3, 3) camera intrinsic matrix
+        dist_coeffs: distortion coefficients (default: None)
+
+    Returns:
+        reproj_error: mean reprojection error in pixels
+        per_joint_errors: (N,) per-joint reprojection errors
+    """
+    if dist_coeffs is None:
+        dist_coeffs = np.zeros(5, dtype=np.float32)
+
+    object_points = gt_3d.astype(np.float32).reshape(-1, 1, 3)
+    image_points = pred_2d.astype(np.float32).reshape(-1, 1, 2)
+    camera_matrix = camera_matrix.astype(np.float32)
+    dist_coeffs = dist_coeffs.astype(np.float32)
+
+    success, rvec, tvec = cv2.solvePnP(
+        objectPoints=object_points,
+        imagePoints=image_points,
+        cameraMatrix=camera_matrix,
+        distCoeffs=dist_coeffs,
+        flags=cv2.SOLVEPNP_ITERATIVE
+    )
+
+    if not success:
+        return np.nan, np.full(len(gt_3d), np.nan)
+
+    # Project 3D points back to 2D
+    projected_2d, _ = cv2.projectPoints(
+        object_points, rvec, tvec, camera_matrix, dist_coeffs
+    )
+    projected_2d = projected_2d.reshape(-1, 2)
+
+    # Reprojection error
+    per_joint_errors = np.linalg.norm(projected_2d - pred_2d, axis=1)
+    reproj_error = per_joint_errors.mean()
+
+    return reproj_error, per_joint_errors

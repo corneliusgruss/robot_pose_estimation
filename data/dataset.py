@@ -18,7 +18,7 @@ from pathlib import Path
 class RobotKeypointDataset(Dataset):
     """
     Dataset for two-stage robot keypoint detection.
-    
+
     Each sample provides:
         - img_stage1: resized full image for bbox prediction
         - img_stage2: cropped image for keypoint prediction
@@ -26,14 +26,16 @@ class RobotKeypointDataset(Dataset):
         - keypoints: normalized keypoints relative to crop
         - keypoints_orig: original pixel coordinates
         - positions_3d: 3D joint positions (if available)
+        - joint_angles: joint angles in radians (if available)
     """
-    
-    def __init__(self, data_dirs, config, load_3d=False):
+
+    def __init__(self, data_dirs, config, load_3d=False, load_angles=False):
         """
         Args:
             data_dirs: list of directories containing images and labels.csv
             config: config module or dict with image sizes, etc.
             load_3d: whether to load 3D positions
+            load_angles: whether to load joint angles
         """
         # Handle both module and dict config
         if hasattr(config, 'ORIG_SIZE'):
@@ -43,6 +45,7 @@ class RobotKeypointDataset(Dataset):
             self.bbox_padding = config.BBOX_PADDING
             self.keypoint_cols_2d = config.KEYPOINT_COLS_2D
             self.keypoint_cols_3d = config.KEYPOINT_COLS_3D if load_3d else None
+            self.joint_angle_cols = getattr(config, 'JOINT_ANGLE_COLS', None) if load_angles else None
         else:
             self.orig_size = config.get('orig_size', 1080)
             self.stage1_size = config.get('stage1_size', 256)
@@ -57,8 +60,10 @@ class RobotKeypointDataset(Dataset):
                 ('2D_J5_Wrist_x', '2D_J5_Wrist_y'),
             ])
             self.keypoint_cols_3d = config.get('keypoint_cols_3d') if load_3d else None
-        
+            self.joint_angle_cols = config.get('joint_angle_cols') if load_angles else None
+
         self.load_3d = load_3d
+        self.load_angles = load_angles
         
         # Load all samples
         self.samples = []
@@ -122,7 +127,14 @@ class RobotKeypointDataset(Dataset):
                     for x_col, y_col, z_col in self.keypoint_cols_3d:
                         positions_3d.append([row[x_col], row[y_col], row[z_col]])
                     sample['positions_3d'] = np.array(positions_3d, dtype=np.float32)
-                
+
+                # Extract joint angles if requested
+                if self.load_angles and self.joint_angle_cols:
+                    joint_angles = []
+                    for col in self.joint_angle_cols:
+                        joint_angles.append(row[col])
+                    sample['joint_angles'] = np.array(joint_angles, dtype=np.float32)
+
                 self.samples.append(sample)
         
         print(f"Loaded {len(self.samples)} samples from {len(data_dirs)} directories")
@@ -183,7 +195,10 @@ class RobotKeypointDataset(Dataset):
         
         if self.load_3d and 'positions_3d' in sample:
             result['positions_3d'] = torch.tensor(sample['positions_3d'], dtype=torch.float32)
-        
+
+        if self.load_angles and 'joint_angles' in sample:
+            result['joint_angles'] = torch.tensor(sample['joint_angles'], dtype=torch.float32)
+
         return result
 
 
