@@ -89,8 +89,9 @@ def forward_kinematics(joint_angles: np.ndarray, angles_in_radians: bool = True)
     positions.append(wrist2_pos)
 
     # --- Joint 5 (Wrist 2) ---
-    # Rotation around X
-    R5 = R4 * Rotation.from_euler('x', t[4])
+    # Rotation around Z (Roll)
+    # The link to the next joint is along Z, so this rotation is around the link axis.
+    R5 = R4 * Rotation.from_euler('z', t[4])
 
     # End effector position (Wrist5 in our naming)
     end_pos = wrist2_pos + R5.apply([0, 0, L5_z])
@@ -99,20 +100,21 @@ def forward_kinematics(joint_angles: np.ndarray, angles_in_radians: bool = True)
     return np.array(positions)
 
 
-def get_joint_positions(joint_angles: np.ndarray, include_base: bool = True) -> np.ndarray:
+def get_joint_positions(joint_angles: np.ndarray, include_base: bool = True, angles_in_radians: bool = True) -> np.ndarray:
     """
     Get the 3D positions of the robot joints matching the keypoint convention.
 
     Keypoint order: Base, Shoulder, Elbow, Wrist3, Wrist4, Wrist5
 
     Args:
-        joint_angles: (6,) array of joint angles in radians
+        joint_angles: (6,) array of joint angles
         include_base: If True, returns 6 positions. If False, returns 5 (no base).
+        angles_in_radians: If True, input is radians. If False, input is degrees.
 
     Returns:
         (6, 3) or (5, 3) array of 3D joint positions in meters
     """
-    positions = forward_kinematics(joint_angles, angles_in_radians=True)
+    positions = forward_kinematics(joint_angles, angles_in_radians=angles_in_radians)
 
     if include_base:
         return positions  # All 6 positions
