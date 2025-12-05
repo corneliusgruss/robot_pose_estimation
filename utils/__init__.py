@@ -33,6 +33,14 @@ from .training import (
     train_stage2,
 )
 
+from .kinematics import (
+    UR10_DH_PARAMS,
+    forward_kinematics,
+    get_joint_positions,
+    solve_ik_from_2d,
+    compute_add_error_ik,
+)
+
 __all__ = [
     # Visualization
     'denormalize_image',
@@ -57,4 +65,10 @@ __all__ = [
     'train_one_epoch_bbox',
     'train_stage1',
     'train_stage2',
+    # Kinematics (UR10)
+    'UR10_DH_PARAMS',
+    'forward_kinematics',
+    'get_joint_positions',
+    'solve_ik_from_2d',
+    'compute_add_error_ik',
 ]
