@@ -2,124 +2,101 @@
 UR10 Kinematics Module
 
 Forward and inverse kinematics for the Universal Robots UR10 manipulator.
-Used to convert between joint angles and 3D joint positions.
-
-DH Parameters source: Universal Robots UR10 specification
-https://www.universal-robots.com/articles/ur/application-installation/dh-parameters-for-calculations-of-kinematics-and-dynamics/
+Calibrated to match Isaac Sim's coordinate system.
 """
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 from scipy.optimize import minimize
 from typing import Tuple, Optional
 
 
-# UR10 DH Parameters (meters, radians)
-# Modified DH convention: [a, d, alpha]
-# Joint i: a_i (link length), d_i (link offset), alpha_i (link twist)
-UR10_DH_PARAMS = {
-    'd1': 0.1273,      # Base height
-    'a2': -0.612,      # Upper arm length (negative in DH convention)
-    'a3': -0.5723,     # Forearm length (negative in DH convention)
-    'd4': 0.163941,    # Wrist 1 offset
-    'd5': 0.1157,      # Wrist 2 offset
-    'd6': 0.0922,      # Wrist 3 offset (to end effector)
+# Link lengths derived from Isaac Sim calibration
+UR10_PARAMS = {
+    'base_height': 0.1273,
+    'L1': 0.2208,           # Shoulder offset
+    'L2_x': -0.1713,        # Shoulder to elbow X offset
+    'L2_y': -0.6127,        # Upper arm length
+    'L3_y': -0.5723,        # Forearm length
+    'L4_x': 0.1157,         # Wrist 1 to wrist 2 offset
+    'L5_z': -0.1157,        # Wrist 2 to end effector
 }
 
-# Full DH table: [a, d, alpha] for each joint
-# Using standard DH convention
-UR10_DH_TABLE = np.array([
-    [0,                  UR10_DH_PARAMS['d1'], np.pi/2],   # Joint 1
-    [UR10_DH_PARAMS['a2'], 0,                  0],         # Joint 2
-    [UR10_DH_PARAMS['a3'], 0,                  0],         # Joint 3
-    [0,                  UR10_DH_PARAMS['d4'], np.pi/2],   # Joint 4
-    [0,                  UR10_DH_PARAMS['d5'], -np.pi/2],  # Joint 5
-    [0,                  UR10_DH_PARAMS['d6'], 0],         # Joint 6
-])
+# Keep old params for reference
+UR10_DH_PARAMS = UR10_PARAMS
 
 
-def dh_transform(theta: float, d: float, a: float, alpha: float) -> np.ndarray:
+def forward_kinematics(joint_angles: np.ndarray, angles_in_radians: bool = True) -> np.ndarray:
     """
-    Compute the DH transformation matrix for a single joint.
-
-    Uses standard DH convention:
-    T = Rz(theta) * Tz(d) * Tx(a) * Rx(alpha)
+    Compute forward kinematics for UR10 matching Isaac Sim's coordinate system.
 
     Args:
-        theta: Joint angle (radians)
-        d: Link offset along z
-        a: Link length along x
-        alpha: Link twist around x
+        joint_angles: (6,) array of joint angles
+        angles_in_radians: If True, input is radians. If False, input is degrees.
 
     Returns:
-        4x4 homogeneous transformation matrix
+        (6, 3) array of 3D positions for each keypoint in base frame (meters)
+        Order: Base, Shoulder, Elbow, Wrist3, Wrist4, Wrist5
     """
-    ct, st = np.cos(theta), np.sin(theta)
-    ca, sa = np.cos(alpha), np.sin(alpha)
+    # Convert to radians if needed
+    if angles_in_radians:
+        t = joint_angles.copy()
+    else:
+        t = np.radians(joint_angles)
 
-    return np.array([
-        [ct, -st*ca,  st*sa, a*ct],
-        [st,  ct*ca, -ct*sa, a*st],
-        [0,   sa,     ca,    d],
-        [0,   0,      0,     1]
-    ])
+    # Link lengths
+    L1 = UR10_PARAMS['L1']
+    L2_x = UR10_PARAMS['L2_x']
+    L2_y = UR10_PARAMS['L2_y']
+    L3_y = UR10_PARAMS['L3_y']
+    L4_x = UR10_PARAMS['L4_x']
+    L5_z = UR10_PARAMS['L5_z']
+    base_height = UR10_PARAMS['base_height']
 
+    positions = [np.array([0, 0, base_height])]  # Base
 
-def forward_kinematics(joint_angles: np.ndarray) -> np.ndarray:
-    """
-    Compute forward kinematics for UR10.
+    # --- Joint 1 (Base) ---
+    # Rotation around Z with 90° offset
+    R1 = Rotation.from_rotvec((t[0] + np.pi/2) * np.array([0, 0, 1]))
 
-    Returns the 3D position of each joint frame origin.
+    # Shoulder Keypoint
+    shoulder_keypoint = positions[0] + R1.apply([L1, 0, 0])
+    positions.append(shoulder_keypoint)
 
-    Args:
-        joint_angles: (6,) array of joint angles in radians
+    # --- Joint 2 (Shoulder) ---
+    # Rotation around X
+    R2 = R1 * Rotation.from_euler('x', t[1])
 
-    Returns:
-        (6, 3) array of 3D positions for each joint in base frame (meters)
-    """
-    assert len(joint_angles) == 6, "UR10 has 6 joints"
+    # Forearm (Elbow) Position
+    forearm_pos = shoulder_keypoint + R1.apply([L2_x, 0, 0]) + R2.apply([0, L2_y, 0])
+    positions.append(forearm_pos)
 
-    positions = []
-    T = np.eye(4)  # Start at base frame
+    # --- Joint 3 (Elbow) ---
+    # Rotation around X
+    R3 = R2 * Rotation.from_euler('x', t[2])
 
-    for i in range(6):
-        a, d, alpha = UR10_DH_TABLE[i]
-        theta = joint_angles[i]
+    # Wrist 1 Position (Wrist3 in our naming)
+    wrist1_pos = forearm_pos + R3.apply([0, L3_y, 0])
+    positions.append(wrist1_pos)
 
-        # Apply DH transform for this joint
-        T = T @ dh_transform(theta, d, a, alpha)
+    # --- Joint 4 (Wrist 1) ---
+    # Rotation around X
+    R4 = R3 * Rotation.from_euler('x', t[3])
 
-        # Extract position (translation component)
-        positions.append(T[:3, 3].copy())
+    # Wrist 2 Position (Wrist4 in our naming)
+    # Link is along X, unaffected by t[3] roll
+    wrist2_pos = wrist1_pos + R3.apply([L4_x, 0, 0])
+    positions.append(wrist2_pos)
+
+    # --- Joint 5 (Wrist 2) ---
+    # Rotation around X
+    R5 = R4 * Rotation.from_euler('x', t[4])
+
+    # End effector position (Wrist5 in our naming)
+    end_pos = wrist2_pos + R5.apply([0, 0, L5_z])
+    positions.append(end_pos)
 
     return np.array(positions)
-
-
-def forward_kinematics_all_frames(joint_angles: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Compute forward kinematics returning all frame origins and rotations.
-
-    Args:
-        joint_angles: (6,) array of joint angles in radians
-
-    Returns:
-        positions: (7, 3) array - base + 6 joint positions
-        rotations: (7, 3, 3) array - rotation matrices for each frame
-    """
-    positions = [np.array([0, 0, 0])]  # Base at origin
-    rotations = [np.eye(3)]  # Base rotation
-
-    T = np.eye(4)
-
-    for i in range(6):
-        a, d, alpha = UR10_DH_TABLE[i]
-        theta = joint_angles[i]
-
-        T = T @ dh_transform(theta, d, a, alpha)
-
-        positions.append(T[:3, 3].copy())
-        rotations.append(T[:3, :3].copy())
-
-    return np.array(positions), np.array(rotations)
 
 
 def get_joint_positions(joint_angles: np.ndarray, include_base: bool = True) -> np.ndarray:
@@ -130,21 +107,17 @@ def get_joint_positions(joint_angles: np.ndarray, include_base: bool = True) -> 
 
     Args:
         joint_angles: (6,) array of joint angles in radians
-        include_base: If True, includes base position (returns 6 positions)
-                     If False, returns only the 6 moving joint positions
+        include_base: If True, returns 6 positions. If False, returns 5 (no base).
 
     Returns:
-        (6, 3) array of 3D joint positions in meters
+        (6, 3) or (5, 3) array of 3D joint positions in meters
     """
-    positions, _ = forward_kinematics_all_frames(joint_angles)
+    positions = forward_kinematics(joint_angles, angles_in_radians=True)
 
     if include_base:
-        # Return: Base, J1, J2, J3, J4, J5 (frames 0-5)
-        # This matches: Base, Shoulder, Elbow, Wrist3, Wrist4, Wrist5
-        return positions[:6]
+        return positions  # All 6 positions
     else:
-        # Return only moving joint positions (frames 1-6)
-        return positions[1:7]
+        return positions[1:]  # Skip base
 
 
 def project_3d_to_2d(points_3d: np.ndarray, camera_matrix: np.ndarray) -> np.ndarray:
@@ -160,7 +133,6 @@ def project_3d_to_2d(points_3d: np.ndarray, camera_matrix: np.ndarray) -> np.nda
     Returns:
         (N, 2) array of 2D pixel coordinates
     """
-    # Homogeneous projection: p = K @ P / P_z
     fx = camera_matrix[0, 0]
     fy = camera_matrix[1, 1]
     cx = camera_matrix[0, 2]
@@ -340,6 +312,23 @@ def solve_ik_from_2d(
     return estimated_angles, estimated_3d, reproj_error
 
 
+def compute_angle_error(estimated_angles: np.ndarray, gt_angles: np.ndarray) -> np.ndarray:
+    """
+    Compute angle errors with proper circular wrapping.
+
+    Args:
+        estimated_angles: (6,) estimated joint angles in radians
+        gt_angles: (6,) ground truth joint angles in radians
+
+    Returns:
+        (6,) angle errors in radians (always positive, wrapped to [0, π])
+    """
+    diff = estimated_angles - gt_angles
+    # Proper circular difference using atan2
+    wrapped = np.arctan2(np.sin(diff), np.cos(diff))
+    return np.abs(wrapped)
+
+
 def compute_add_error_ik(
     pred_2d: np.ndarray,
     gt_2d: np.ndarray,
@@ -374,17 +363,15 @@ def compute_add_error_ik(
     per_joint_errors = np.linalg.norm(estimated_3d - gt_3d, axis=1)
     add_error = per_joint_errors.mean()
 
-    # Compute angle errors
-    angle_errors = np.abs(estimated_angles - gt_angles)
-    # Wrap to [-pi, pi]
-    angle_errors = np.minimum(angle_errors, 2*np.pi - angle_errors)
+    # Compute angle errors with proper wrapping
+    angle_errors = compute_angle_error(estimated_angles, gt_angles)
 
     return add_error, per_joint_errors, angle_errors, reproj_error
 
 
 if __name__ == '__main__':
     # Quick test
-    print("UR10 Kinematics Test")
+    print("UR10 Kinematics Test (Isaac Sim calibrated)")
     print("=" * 50)
 
     # Test forward kinematics at home position (all zeros)
@@ -407,4 +394,3 @@ if __name__ == '__main__':
     # Compute reach (end effector distance from base)
     reach = np.linalg.norm(positions[-1])
     print(f"\nEnd effector reach: {reach:.4f} m")
-    print(f"Expected max reach: ~1.3 m (UR10 spec)")
